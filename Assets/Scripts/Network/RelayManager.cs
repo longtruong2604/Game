@@ -1,61 +1,56 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 using Unity.Services.Core;
 using Unity.Services.Authentication;
-using System.Threading.Tasks;
-using Unity.Services.Relay.Models;
 using Unity.Services.Relay;
+using Unity.Services.Relay.Models;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
-using Unity.Networking.Transport.Relay;
+using System.Threading.Tasks;
 
 public class RelayManager : MonoBehaviour
 {
-    // Start is called before the first frame update
     [SerializeField] private TextMeshProUGUI joinCodeText;
     [SerializeField] private TMP_InputField joinCodeInputField;
-
 
     private async void Start()
     {
         await UnityServices.InitializeAsync();
-
-        await AuthenticationService.Instance.SignInAnonymouslyAsync();
+        if (!AuthenticationService.Instance.IsSignedIn)
+        {
+            await AuthenticationService.Instance.SignInAnonymouslyAsync();
+        }
     }
 
     public async void StartRelay()
     {
-        string joinCode = await StartHostWithRelay();
+        string joinCode = await StartHostWithRelay(3, "dtls");
         joinCodeText.text = joinCode;
     }
 
     public async void JoinRelay()
     {
-        await StartClientWithRelay(joinCodeInputField.text);
+        await StartClientWithRelay(joinCodeInputField.text, "dtls");
     }
 
-
-    private async Task<string> StartHostWithRelay(int maxConnections = 3)
+    public async Task<string> StartHostWithRelay(int maxConnections, string connectionType)
     {
-        Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
+        var allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
 
-        NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(new RelayServerData(allocation, "dtls"));
+        var relayServerData = AllocationUtils.ToRelayServerData(allocation, connectionType);
+        NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
 
-        string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
-
+        var joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
         return NetworkManager.Singleton.StartHost() ? joinCode : null;
     }
 
-    private async Task<bool> StartClientWithRelay(string joinCode)
+    public async Task<bool> StartClientWithRelay(string joinCode, string connectionType)
     {
+        var joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
 
-        JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
+        var relayServerData = AllocationUtils.ToRelayServerData(joinAllocation, connectionType);
+        NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
 
-        NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(new RelayServerData(joinAllocation, "dtls"));
-
-        return !string.IsNullOrEmpty(joinCode) && NetworkManager.Singleton.StartClient();
+        return NetworkManager.Singleton.StartClient();
     }
-
 }
